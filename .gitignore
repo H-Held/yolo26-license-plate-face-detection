@@ -1,0 +1,25 @@
+# ---- Do NOT allow images ----
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.webp
+*.svg
+*.ico
+# ---- Visual Studio ----
+.vs/
+.vscode/
+# ---- Python Basics (optional, but recommended) ----
+__pycache__/
+*.py[cod]
+# Virtual environments (optional)
+venv/
+.venv/
+# OS garbage (optional)
+.DS_Store
+Thumbs.db
+# ---- Firebase Secrets ----
+source/FireBase/serviceAccountKey.json
+**/serviceAccountKey.json
