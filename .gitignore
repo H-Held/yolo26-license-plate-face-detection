@@ -33,7 +33,9 @@ annotations*.json
 *_coco.json
 
 # ---- Secrets / credentials / server access ----
-.env
+# NOTE: the repo-root `.env` is intentionally NOT ignored — it holds release
+# METADATA only (model size, tiles, classes, metrics) and is committed.
+# Never put real secrets/tokens in it.
 *.key
 *.pem
 *.token

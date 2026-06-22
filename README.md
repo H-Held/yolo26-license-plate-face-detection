@@ -31,27 +31,29 @@ hyper-parameter.
 
 ## Download the model
 
-The trained weights are tracked with **Git LFS** under [`models/`](models/).
+The trained weights are tracked with **Git LFS** under [`models/`](models/) and published
+as **GitHub Releases**. The model filename is always the stable
+`yolo26n_face_lp.pt` — the version lives in the git tag / release, so these links never
+break.
 
-**Always get the latest model from one stable link** (the current `main`):
+**Always get the latest model from one stable link** (no login required):
 
 ```
-https://github.com/H-Held/yolo26-license-plate-face-detection/raw/main/models/yolo26n_face_lp.pt
+https://github.com/H-Held/yolo26-license-plate-face-detection/releases/latest/download/yolo26n_face_lp.pt
 ```
 
 ```bash
 # command-line download of the newest model
 curl -L -o yolo26n_face_lp.pt \
-  https://github.com/H-Held/yolo26-license-plate-face-detection/raw/main/models/yolo26n_face_lp.pt
+  https://github.com/H-Held/yolo26-license-plate-face-detection/releases/latest/download/yolo26n_face_lp.pt
 ```
 
-**Pinned / reproducible versions** are published as Git **tags** (e.g. `v0.1.0`) and as
-**[GitHub Releases](https://github.com/H-Held/yolo26-license-plate-face-detection/releases/latest)**
-(the model weights are attached to each release as a downloadable asset). To get the
-model exactly as it was at a given version, swap `main` for the tag:
+**Pinned / reproducible versions** are published as Git **tags** / Releases (e.g.
+`v1.0.0`). For a specific version, use its release asset or the LFS file on that tag:
 
 ```
-https://github.com/H-Held/yolo26-license-plate-face-detection/raw/v0.1.0/models/yolo26n_face_lp.pt
+https://github.com/H-Held/yolo26-license-plate-face-detection/releases/download/v1.0.0/yolo26n_face_lp.pt
+https://github.com/H-Held/yolo26-license-plate-face-detection/raw/v1.0.0/models/yolo26n_face_lp.pt
 ```
 
 If you cloned the repo, make sure LFS content is pulled:
@@ -88,11 +90,27 @@ lower `conf` catches more faces/plates at the cost of a few extra blurs.
 ## Results (test split)
 
 <!-- RESULTS:BEGIN -->
-_Populated after evaluation (`notebooks/06_evaluate.ipynb`)._
+**This is a BASE model (v1.0.0)** trained on a small dataset (~306 source photos) as a
+starting point — it will be retrained as more images are collected. Evaluated on the
+independent test split (`notebooks/06_evaluate.ipynb`):
+
+| Class | Precision | Recall | AP@50 | AP@50-95 |
+|---|---|---|---|---|
+| `face` | 0.855 | 0.124 | 0.163 | 0.068 |
+| `license-plate` | 0.720 | 0.401 | 0.413 | 0.227 |
+| **overall (mAP)** | | | **0.288** | **0.147** |
+
+> Recall is reported at Ultralytics' max-F1 confidence; for anonymisation use a **lower
+> `conf`** to trade precision for recall.
+
+**The acceptance targets below are NOT yet met** — expected at this stage. The dataset is
+small and dominated by tiny objects (≈47 % of faces and 40 % of plates are < 32 px), which
+caps what a *nano* model can recall. More (and larger) annotated faces/plates are the main
+lever; that is the purpose of the next data-collection + retraining round.
 <!-- RESULTS:END -->
 
-Targets: `face` recall ≥ 0.95 & precision ≥ 0.85; `license-plate` recall ≥ 0.90 &
-precision ≥ 0.90 (production goal: plate recall ≥ 0.98).
+Targets (future goal): `face` recall ≥ 0.95 & precision ≥ 0.85; `license-plate` recall ≥
+0.90 & precision ≥ 0.90 (production goal: plate recall ≥ 0.98).
 
 ---
 
@@ -103,6 +121,7 @@ precision ≥ 0.90 (production goal: plate recall ≥ 0.98).
 ├── LICENSE                 # AGPL-3.0
 ├── README.md               # this file
 ├── MODEL_CARD.md           # human-readable model + training description
+├── .env                    # release metadata (classes, tiles, training, metrics)
 ├── .gitattributes          # Git LFS rules (*.pt, *.onnx, …)
 ├── .gitignore              # keeps images / data / secrets OUT
 ├── models/                 # trained weights (Git LFS)
@@ -136,8 +155,9 @@ precision ≥ 0.90 (production goal: plate recall ≥ 0.98).
 3. **Leakage-free** 70/15/15 split, stratified so both classes are in val & test.
 4. Reduce to **2 classes** (`face`, `license-plate`) + ~12 % hard-negative backgrounds.
 5. **Measure** the optimal batch size for the GPU (real probe).
-6. Train **YOLO26n** from official pretrained weights: 400 epochs, 20 warmup, early stop
-   at patience 60, SGD + cosine LR + AMP.
+6. Train **YOLO26n** (this base model fine-tunes the previous run's `best.pt`): 50 epochs,
+   1 warmup epoch then the cosine fine-tuning tail, SGD + cosine LR + AMP, images cached
+   in RAM.
 7. Evaluate on the **independent test split** and check against the target metrics.
 
 Full details and exact hyper-parameters: **[MODEL_CARD.md](MODEL_CARD.md)**.
