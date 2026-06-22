@@ -1,0 +1,12 @@
+# Python 3.9, CUDA GPU. Exact versions used to train this model.
+# NOTE: numpy MUST stay at 1.26.x — numpy 2.x breaks torch 2.1.2
+# ("Numpy is not available" on torch.from_numpy). opencv must be the headless build.
+ultralytics==8.4.70          # provides YOLO26 support
+torch==2.1.2                 # CUDA build (install the wheel matching your CUDA)
+torchvision==0.16.2
+numpy==1.26.4
+opencv-python-headless==4.10.0.84
+albumentations==2.0.8        # offline photometric augmentation (notebook 02)
+pillow
+pyyaml
+tqdm

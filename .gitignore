@@ -1,4 +1,10 @@
-# ---- Do NOT allow images ----
+# =============================================================================
+# Privacy first: NEVER commit training photos, personal data, or secrets.
+# This repository ships only CODE and the trained MODEL WEIGHTS — never images
+# or annotations. (See README / MODEL_CARD for why.)
+# =============================================================================
+
+# ---- Images / photos (training & source data must stay out) ----
 *.png
 *.jpg
 *.jpeg
@@ -8,18 +14,50 @@
 *.webp
 *.svg
 *.ico
-# ---- Visual Studio ----
+*.heic
+*.heif
+
+# ---- Datasets, raw exports, annotations, run artifacts ----
+raw/
+data/
+dataset/
+dataset_*/
+crops_*/
+aug/
+runs/
+_old*/
+*.zip
+*.tar
+*.tar.gz
+annotations*.json
+*_coco.json
+
+# ---- Secrets / credentials / server access ----
+.env
+*.key
+*.pem
+*.token
+**/serviceAccountKey.json
+source/FireBase/serviceAccountKey.json
+*export*link*.txt
+*tunnel*
+
+# ---- Editor / IDE ----
 .vs/
 .vscode/
-# ---- Python Basics (optional, but recommended) ----
+.idea/
+
+# ---- Python ----
 __pycache__/
 *.py[cod]
-# Virtual environments (optional)
 venv/
 .venv/
-# OS garbage (optional)
+.ipynb_checkpoints/
+
+# ---- OS junk ----
 .DS_Store
 Thumbs.db
-# ---- Firebase Secrets ----
-source/FireBase/serviceAccountKey.json
-**/serviceAccountKey.json
+
+# ---- Allow the trained model weights (tracked via Git LFS, see .gitattributes) ----
+!models/
+!models/**
