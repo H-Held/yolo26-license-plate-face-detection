@@ -5,8 +5,8 @@ what kind of data** — written so a person (not a machine) can understand and r
 the setup. No images, annotations, API keys, or server credentials are part of this
 repository (privacy by design).
 
-> **Version `v1.1.0`** — YOLO26 **large** (`yolo26l`), trained on 1280×1280 tiles
-> down-scaled to **640×640**. Infer at `imgsz=640`.
+> **Version `v2.0.0`** — YOLO26 **medium** (`yolo26m`), trained on 640×640 tiles.
+> Infer at `imgsz=640`.
 
 ---
 
@@ -14,7 +14,7 @@ repository (privacy by design).
 
 | | |
 |---|---|
-| **Architecture** | YOLO26 **large** (`yolo26l`) |
+| **Architecture** | YOLO26 **medium** (`yolo26m`) |
 | **Purpose** | Locate **faces** and **vehicle license-plates** in photos so they can be anonymized (blurred) automatically on upload |
 | **Project** | Part of *"Privacy by Upload — Automated Image Anonymization"* (HTW Berlin, in collaboration with Parry) |
 | **Framework** | [Ultralytics](https://docs.ultralytics.com) `8.4.70`, PyTorch `2.1.2` (CUDA) |
@@ -42,8 +42,8 @@ detection output; the **name** is what it means:
 | Property | Value | Why |
 |---|---|---|
 | **`imgsz`** | **640** | The model was trained on tiles down-scaled to 640 px |
-| **conf `face`** | **0.02** | Recall-first: catch as many faces as possible |
-| **conf `license-plate`** | **0.03** | Recall-first |
+| **conf `face`** | **0.391** | Recall-first: catch as many faces as possible |
+| **conf `license-plate`** | **0.625** | Recall-first |
 | **Color** | RGB | |
 
 The per-class thresholds are chosen **recall-first** ("better over- than under-detect" —
@@ -58,14 +58,13 @@ are logged for every training run in `runs/best_conf_log.csv`.
 
 | Property | Value | Why |
 |---|---|---|
-| **Source tile size** | **1280 × 1280 px** (lossless PNG) | High resolution so small/distant plates and faces survive cropping |
-| **Compression** | **down-scaled 1280 → 640** (INTER_AREA resize) | Smaller, faster model input; this is the "compressed" variant of the campaign |
-| **Model input (`imgsz`)** | **640** | Equals the down-scaled tile size |
+| **Source tile size** | **640 × 640 px** | Tiles used as-is for training |
+| **Compression** | **none** | No down-scaling applied |
+| **Model input (`imgsz`)** | **640** | Native tile size |
 
-Full-resolution source photos are first **cropped into 1280×1280 tiles** (not shrunk), so a
-tiny license-plate keeps its pixels; the tiles are then **down-scaled to 640** for this
-model. (A 1280-px uncompressed variant was also trained — it scores marginally higher mAP
-but is larger/slower; this 640 model was chosen for deployment.)
+Full-resolution source photos are first **cropped into 640×640 tiles** (not shrunk), so a
+tiny license-plate keeps its pixels. This model is trained directly on 640 px tiles without
+further compression.
 
 ---
 
@@ -83,8 +82,8 @@ The data pipeline (notebooks `01`–`03b`) turns raw annotated photos into a tra
    appear in val *and* test.
 4. **2-class dataset** (`03b`): labels reduced to the configured classes + ~12 %
    hard-negative backgrounds → `dataset_face_lp` (`nc=2`).
-5. **Down-scale** (`build_resized_dataset.py`): the 1280 tiles are resized to 640 →
-   `dataset_face_lp_640`, the dataset this model was trained on.
+5. **No down-scale needed**: tiles are already 640×640 → `dataset_face_lp`, the dataset
+    this model was trained on.
 
 > **No source images or labels are published.** Only the resulting model weights are
 > shared, under AGPL-3.0.
@@ -99,8 +98,8 @@ stop, then an **automatic fine-tune** of the best checkpoint.
 
 | Hyper-parameter | Value |
 |---|---|
-| Model | YOLO26l (init from official `yolo26l.pt`) |
-| Image size (`imgsz`) | 640 (down-scaled tiles) |
+| Model | YOLO26m (init from official `yolo26m.pt`) |
+| Image size (`imgsz`) | 640 (native tiles) |
 | Coarse phase | up to 400 epochs, early-stop `patience=50` |
 | Fine-tune phase | **75 epochs** from the coarse `best.pt`, `lr0=0.005`, cosine tail |
 | Batch size | **measured under real DDP** by the batch-finder (`04`): per-GPU 5 × GPUs |
@@ -136,23 +135,23 @@ precision* — a missed face/plate (privacy leak) is worse than an extra blur.
 ## 7. Results
 
 <!-- RESULTS:BEGIN -->
-Model **v1.1.0** (`yolo26l` @ 640), evaluated on the independent **test** split (673 tiles):
+Model **v2.0.0** (`yolo26m` @ 640), evaluated on the independent **test** split:
 
 | Class | Precision | Recall | AP@50 | AP@50-95 |
 |---|---|---|---|---|
-| `face` | 0.781 | 0.165 | 0.187 | 0.088 |
-| `license-plate` | 0.700 | 0.407 | 0.418 | 0.232 |
-| **overall (mAP)** | | | **0.302** | **0.160** |
+| `face` | 0.503 | 0.500 | — | — |
+| `license-plate` | 0.538 | 0.438 | — | — |
+| **overall (mAP)** | | | **0.414** | **0.220** |
 
-**Target check: FAIL** (face recall 0.165 < 0.95; plate recall 0.407 < 0.90). This is
+**Target check: FAIL** (face recall 0.500 < 0.95; plate recall 0.438 < 0.90). This is
 expected for a base model: the training data is small (~306 source photos) and dominated by
 tiny objects (≈47 % of faces and 40 % of plates are < 32 px), which caps recall. The next
 iteration will add more annotated images (especially larger/closer faces and plates) and
 retrain. P/R are reported at the evaluation confidence; at inference use the **per-class
-thresholds** in §2 (face 0.02 / plate 0.03) to raise recall.
+thresholds** in §2 (face 0.391 / plate 0.625) to raise recall.
 
-*(Compared to base model v1.0.0 — yolo26n @ 1280: face R 0.124→0.165, plate R 0.401→0.407,
-mAP50 0.288→0.302.)*
+*(Compared to v1.1.0 — yolo26l @ 640: face R 0.165→0.500, plate R 0.407→0.438,
+mAP50 0.302→0.414.)*
 <!-- RESULTS:END -->
 
 ---

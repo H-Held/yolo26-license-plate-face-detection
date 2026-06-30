@@ -1,7 +1,7 @@
 # YOLO26 — Face & License-Plate Detection
 
 [![License](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
-[![Model](https://img.shields.io/badge/Model-YOLO26l-success)](MODEL_CARD.md)
+[![Model](https://img.shields.io/badge/Model-YOLO26m-success)](MODEL_CARD.md)
 [![Input](https://img.shields.io/badge/Input-640×640-orange)]()
 
 A **YOLO26** detector that finds **faces** and **vehicle license-plates**, trained by
@@ -14,8 +14,8 @@ YOLO26/Ultralytics: it publishes the **training code** and the **resulting model
 weights**. It deliberately contains **no training images, no annotations, no API keys,
 and no server credentials** — only code and the model.
 
-> **Current release: `v1.1.0`** — YOLO26 **large** (`yolo26l`), trained on 1280×1280 tiles
-> down-scaled to **640×640** (infer at `imgsz=640`). Still a **base model** (data-limited,
+> **Current release: `v2.0.0`** — YOLO26 **medium** (`yolo26m`), trained on 640×640 tiles
+> (infer at `imgsz=640`). Still a **base model** (data-limited,
 > targets not yet met — see Results).
 
 ---
@@ -36,27 +36,27 @@ data, tiling/compression, and every training hyper-parameter.
 
 The trained weights are tracked with **Git LFS** under [`models/`](models/) and published
 as **GitHub Releases**. The model filename is the **size-neutral, stable**
-`yolo26_face_lp.pt` — the version lives in the git tag / release, so these links never
+`yolo26m_face_lp.pt` — the version lives in the git tag / release, so these links never
 break.
 
 **Always get the latest model from one stable link** (no login required):
 
 ```
-https://github.com/H-Held/yolo26-license-plate-face-detection/releases/latest/download/yolo26_face_lp.pt
+https://github.com/H-Held/yolo26-license-plate-face-detection/releases/latest/download/yolo26m_face_lp.pt
 ```
 
 ```bash
 # command-line download of the newest model
-curl -L -o yolo26_face_lp.pt \
-  https://github.com/H-Held/yolo26-license-plate-face-detection/releases/latest/download/yolo26_face_lp.pt
+curl -L -o yolo26m_face_lp.pt \
+  https://github.com/H-Held/yolo26-license-plate-face-detection/releases/latest/download/yolo26m_face_lp.pt
 ```
 
 **Pinned / reproducible versions** are published as Git **tags** / Releases (e.g.
 `v1.1.0`):
 
 ```
-https://github.com/H-Held/yolo26-license-plate-face-detection/releases/download/v1.1.0/yolo26_face_lp.pt
-https://github.com/H-Held/yolo26-license-plate-face-detection/raw/v1.1.0/models/yolo26_face_lp.pt
+https://github.com/H-Held/yolo26-license-plate-face-detection/releases/download/v2.0.0/yolo26m_face_lp.pt
+https://github.com/H-Held/yolo26-license-plate-face-detection/raw/v2.0.0/models/yolo26m_face_lp.pt
 ```
 
 If you cloned the repo, make sure LFS content is pulled:
@@ -73,14 +73,14 @@ git lfs pull
 ```python
 from ultralytics import YOLO
 
-model = YOLO("yolo26_face_lp.pt")
+model = YOLO("yolo26m_face_lp.pt")
 
-# This model was trained on tiles down-scaled to 640 px -> infer at imgsz=640.
+# This model was trained on 640 px tiles -> infer at imgsz=640.
 # Recommended per-class confidence (recall-first: better over- than under-detect):
-#   face = 0.02   license-plate = 0.03
-results = model.predict("your_image.jpg", imgsz=640, conf=0.02)
+#   face = 0.391   license-plate = 0.625
+results = model.predict("your_image.jpg", imgsz=640, conf=0.391)
 
-CONF = {"face": 0.02, "license-plate": 0.03}
+CONF = {"face": 0.391, "license-plate": 0.625}
 for r in results:
     for box in r.boxes:
         cls = model.names[int(box.cls)]      # "face" or "license-plate"
@@ -99,18 +99,18 @@ run in `runs/best_conf_log.csv`.
 ## Results (test split)
 
 <!-- RESULTS:BEGIN -->
-**This is a BASE model (`v1.1.0`, yolo26l @ 640)** trained on a small dataset
+**This is a BASE model (`v2.0.0`, yolo26m @ 640)** trained on a small dataset
 (~306 source photos) as a starting point — it will be retrained as more images are
 collected. Evaluated on the independent test split (`notebooks/06_evaluate.ipynb`):
 
 | Class | Precision | Recall | AP@50 | AP@50-95 |
 |---|---|---|---|---|
-| `face` | 0.781 | 0.165 | 0.187 | 0.088 |
-| `license-plate` | 0.700 | 0.407 | 0.418 | 0.232 |
-| **overall (mAP)** | | | **0.302** | **0.160** |
+| `face` | 0.503 | 0.500 | — | — |
+| `license-plate` | 0.538 | 0.438 | — | — |
+| **overall (mAP)** | | | **0.414** | **0.220** |
 
 > P/R are reported at Ultralytics' evaluation confidence. For anonymisation use the
-> **per-class thresholds** above (face 0.02 / plate 0.03), which trade precision for recall.
+> **per-class thresholds** above (face 0.391 / plate 0.625), which trade precision for recall.
 
 **The acceptance targets below are NOT yet met** — expected at this stage. The dataset is
 small and dominated by tiny objects (≈47 % of faces and 40 % of plates are < 32 px), which
@@ -150,7 +150,7 @@ combined). For an unattended, disconnect-proof run of multiple models on all GPU
 ├── .env                    # release metadata (classes, tiling, conf thresholds, metrics)
 ├── .gitattributes          # Git LFS rules (*.pt, *.onnx, …)
 ├── models/
-│   └── yolo26_face_lp.pt    # newest model (this path is the stable download link)
+│   └── yolo26m_face_lp.pt    # newest model (this path is the stable download link)
 ├── metrics/metrics_history.csv  # one row per release (accuracy over versions)
 ├── notebooks/              # the full, reproducible pipeline (00–07)
 │   ├── 00_setup … 03b      # data prep (crop, augment, split, 2-class dataset)
