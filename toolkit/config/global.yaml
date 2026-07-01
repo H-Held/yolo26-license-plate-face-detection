@@ -1,0 +1,44 @@
+# =============================================================================
+# GLOBAL TRAINING CONFIG  —  the ONE file you edit for the model itself.
+# Everything about *which data* is in config/datasets/*.yaml (+ .hiden/datasets/).
+# A human or a simple AI agent only needs to touch values here. No code changes.
+# =============================================================================
+
+# ---- The model ----
+model_size: m            # n | s | m | l | x   (YOLO26 size letter)
+imgsz: 640               # training/tiling square size in pixels
+epochs: 400
+patience: 50             # early-stop patience
+
+# Warm-start: begin a NEW run FROM AN EXISTING model instead of COCO-from-scratch.
+#   ""            -> start from the official yolo26<size>.pt (transfer from COCO)
+#   <path to .pt> -> continue / fine-tune from your OWN model (e.g. a previous best.pt).
+#                    Relative paths are resolved under data_root.
+# NOTE: this is for a FRESH run. An interrupted run always auto-resumes from its own
+# last.pt regardless of this setting (resume beats init_weights).
+init_weights: ""
+
+# ---- The unified label space (index = class id in the trained model) ----
+# EVERY dataset maps its own class names onto THESE names (see class_map in each
+# dataset config). Add a class here and in the dataset class_maps to extend.
+classes:
+  - face
+  - license-plate
+
+# ---- Where data lives ----
+# data_root is the base folder that all dataset `path:` entries are relative to.
+# Override at runtime with env var  YOLO_TOOLKIT_DATA_ROOT  (used for local tests).
+data_root: /home/jovyan/shared/s0598584/deepseek
+out_dataset: dataset_build    # built YOLO dataset folder name (under data_root)
+
+# ---- Build knobs (safe defaults; per-dataset overrides win) ----
+pad_value: 114           # letterbox padding grey (matches YOLO)
+workers: 12              # CPU workers for the build
+
+# ---- Batch finder / VRAM policy ----
+vram_target_pct: 85      # never exceed this live board usage on ANY gpu
+vram_probe_buffer: 0.83  # probe target = buffer * board  (85% minus DDP/aug margin)
+probe_iters: 40          # real-set iterations per probe (dense batches must show up)
+
+# ---- Run naming ----
+run_name: yolo26m_build_640   # output run folder name under runs/faces/

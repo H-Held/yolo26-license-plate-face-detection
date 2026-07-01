@@ -27,6 +27,13 @@ aug/
 runs/
 _old*/
 *.zip
+
+# ---- Toolkit generated fixtures + local presence/GT files (never commit data) ----
+toolkit/tests/_fixtures/
+*_kombiniert.json
+*_gt.txt
+*_boxes.json
+*_bbx_gt.txt
 *.tar
 *.tar.gz
 annotations*.json
@@ -48,6 +55,7 @@ source/FireBase/serviceAccountKey.json
 .vs/
 .vscode/
 .idea/
+.hiden/
 
 # ---- Python ----
 __pycache__/

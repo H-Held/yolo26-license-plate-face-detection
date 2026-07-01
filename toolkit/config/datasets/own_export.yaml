@@ -1,0 +1,56 @@
+# =============================================================================
+# DATASET CONFIG  —  your OWN exported photos (the "official" dataset).
+# This is the template to copy when you add a new PUBLIC dataset.
+# For datasets whose use must stay private, put an identical file in
+# .hiden/datasets/  instead (that folder is git-ignored) — see docs/HANDOFF.md.
+# =============================================================================
+
+name: own_export
+visibility: official          # official = may appear in the repo | hidden = .hiden only
+enabled: true                 # flip to false to exclude without deleting the file
+
+# ---- Where this dataset's images + labels are (relative to global data_root) ----
+format: coco                  # adapter to use: coco | facebbx | imagefolder
+path: own_src                 # base folder for this dataset
+images_dir: own_src/images    # folder with the image files
+labels: own_src/annotations_coco.json   # COCO json for `format: coco`
+
+# ---- Map THIS dataset's class names -> the global unified class names ----
+# Only mapped classes are kept; anything else in the source is dropped.
+class_map:
+  face: face
+  license-plate: license-plate
+
+# ---- Optional inclusion filter (kombiniert.json style: {path: 0|1}) ----
+# Keep only images whose flag == keep_value. Leave as null to keep everything.
+# Used by the hidden sets to drop images that would contain UNLABELLED objects.
+include_filter: null
+# include_filter:
+#   json: own_src/kombiniert.json
+#   keep_value: 0
+#   strip_prefixes: []        # path prefixes to strip so keys match image names
+
+# ---- Split (done PER DATASET, BEFORE any augmentation — leakage-free) ----
+split:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+  seed: 42                    # deterministic; same seed => same split forever
+
+# ---- Tiling (train split only). Three regimes, each toggleable: ----
+tiling:
+  native_tiles: true          # (a) cut the image into imgsz-sized tiles, keep positives
+  scaled_tiles: [2, 3]        # (b) cut 2x..3x windows, downscale each to imgsz (context)
+  whole_image: false          # ALWAYS also add the whole image->imgsz (set true for
+                              #     whole-image datasets that shouldn't be tiled)
+  whole_if_span_tiles: 4      # (c) add whole-image->imgsz IF a box spans > N tiles
+  stride_frac: 0.8            # tile stride = stride_frac * imgsz
+  max_pos_tiles: 8            # cap positive tiles per image (disk/RAM guard)
+  hardneg_frac: 0.05          # keep <=5% empty tiles as hard negatives
+
+# ---- Augmentation of the merged TRAIN split ----
+augment:
+  photometric_variants: 1     # extra recoloured/exposed copies per train image
+  geometric: true             # rotate / 180-flip / hflip variants (bbox-correct)
+  class_boost:                # oversample weak classes by duplicating+augmenting
+    license-plate: 3          # e.g. plates are rare -> 3x more plate-bearing samples

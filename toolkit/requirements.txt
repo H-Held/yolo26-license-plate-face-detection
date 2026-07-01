@@ -1,0 +1,9 @@
+# Data-prep (CPU) — needed everywhere, incl. the small node and a laptop:
+numpy>=1.23
+Pillow>=9
+PyYAML>=6
+opencv-python-headless>=4.7   # optional but faster; the code falls back to Pillow
+
+# Training / batch-finder / pseudo-label (GPU node only):
+ultralytics>=8.4.70
+# torch is pulled in by ultralytics; on the cluster use the pre-provisioned CUDA build.
