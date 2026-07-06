@@ -5,8 +5,9 @@ what kind of data** — written so a person (not a machine) can understand and r
 the setup. No images, annotations, API keys, or server credentials are part of this
 repository (privacy by design).
 
-> **Version `v2.0.0`** — YOLO26 **medium** (`yolo26m`), trained on 640×640 tiles.
-> Infer at `imgsz=640`.
+> **Version `v2.1.0`** — YOLO26 **medium** (`yolo26m`), trained on 640×640 tiles.
+> Infer at `imgsz=640`. New: `.env` ships `CHECK_FULL_IMAGE=true` — consumers can
+> run full-image inference alongside tiled inference for better large-object recall.
 
 ---
 
@@ -135,7 +136,7 @@ precision* — a missed face/plate (privacy leak) is worse than an extra blur.
 ## 7. Results
 
 <!-- RESULTS:BEGIN -->
-Model **v2.0.0** (`yolo26m` @ 640), evaluated on the independent **test** split:
+Model **v2.1.0** (`yolo26m` @ 640), evaluated on the independent **test** split:
 
 | Class | Precision | Recall | AP@50 | AP@50-95 |
 |---|---|---|---|---|
@@ -151,7 +152,8 @@ retrain. P/R are reported at the evaluation confidence; at inference use the **p
 thresholds** in §2 (face 0.391 / plate 0.625) to raise recall.
 
 *(Compared to v1.1.0 — yolo26l @ 640: face R 0.165→0.500, plate R 0.407→0.438,
-mAP50 0.302→0.414.)*
+mAP50 0.302→0.414. v2.1.0 adds CHECK_FULL_IMAGE metadata flag; model weights and
+metrics are unchanged from v2.0.0.)*
 <!-- RESULTS:END -->
 
 ---

@@ -14,8 +14,10 @@ YOLO26/Ultralytics: it publishes the **training code** and the **resulting model
 weights**. It deliberately contains **no training images, no annotations, no API keys,
 and no server credentials** — only code and the model.
 
-> **Current release: `v2.0.0`** — YOLO26 **medium** (`yolo26m`), trained on 640×640 tiles
-> (infer at `imgsz=640`). Still a **base model** (data-limited,
+> **Current release: `v2.1.0`** — YOLO26 **medium** (`yolo26m`), trained on 640×640 tiles
+> (infer at `imgsz=640`). New: `CHECK_FULL_IMAGE` flag in `.env` — consumers can now run
+> inference on the **complete image** (letterboxed) in addition to tiles, catching
+> large objects that span multiple tiles. Still a **base model** (data-limited,
 > targets not yet met — see Results).
 
 ---
@@ -55,8 +57,8 @@ curl -L -o yolo26m_face_lp.pt \
 `v1.1.0`):
 
 ```
-https://github.com/H-Held/yolo26-license-plate-face-detection/releases/download/v2.0.0/yolo26m_face_lp.pt
-https://github.com/H-Held/yolo26-license-plate-face-detection/raw/v2.0.0/models/yolo26m_face_lp.pt
+https://github.com/H-Held/yolo26-license-plate-face-detection/releases/download/v2.1.0/yolo26m_face_lp.pt
+https://github.com/H-Held/yolo26-license-plate-face-detection/raw/v2.1.0/models/yolo26m_face_lp.pt
 ```
 
 If you cloned the repo, make sure LFS content is pulled:
@@ -94,12 +96,21 @@ blurs. The exact per-class thresholds also ship in the release `.env` as
 `CONF_THRESHOLDS` (`index:conf`, parallel to `CLASSES`) and are logged for every training
 run in `runs/best_conf_log.csv`.
 
+### Full-image inference (`CHECK_FULL_IMAGE`)
+
+Since `v2.1.0`, the `.env` ships a `CHECK_FULL_IMAGE=true` flag. Consumers that support
+this flag should, **in addition to tiled inference**, letterbox the **entire source image**
+to `imgsz=640` and run the model on that single frame as well. This catches large
+objects (e.g. a face that fills most of the photo) that would be fragmented across tiles
+and possibly missed. The full-image pass produces the same YOLO output format — merge it
+with the tile detections and apply NMS/deduplication as needed.
+
 ---
 
 ## Results (test split)
 
 <!-- RESULTS:BEGIN -->
-**This is a BASE model (`v2.0.0`, yolo26m @ 640)** trained on a small dataset
+**This is a BASE model (`v2.1.0`, yolo26m @ 640)** trained on a small dataset
 (~306 source photos) as a starting point — it will be retrained as more images are
 collected. Evaluated on the independent test split (`notebooks/06_evaluate.ipynb`):
 
@@ -147,7 +158,7 @@ combined). For an unattended, disconnect-proof run of multiple models on all GPU
 ├── LICENSE                 # AGPL-3.0
 ├── README.md               # this file
 ├── MODEL_CARD.md           # human-readable model + training description
-├── .env                    # release metadata (classes, tiling, conf thresholds, metrics)
+├── .env                    # release metadata (classes, tiling, conf thresholds, CHECK_FULL_IMAGE, metrics)
 ├── .gitattributes          # Git LFS rules (*.pt, *.onnx, …)
 ├── models/
 │   └── yolo26m_face_lp.pt    # newest model (this path is the stable download link)
