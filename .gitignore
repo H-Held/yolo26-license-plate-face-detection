@@ -68,6 +68,20 @@ venv/
 .DS_Store
 Thumbs.db
 
+# ---- Legacy pre-toolkit scripts/notebooks (superseded by toolkit/, hardcode
+# the personal JupyterHub path/student id) + internal scratch notes ----
+scripts/
+notebooks/
+data_prep_pipeline.py
+start_training.py
+task_progress.md
+
+# =============================================================================
+# The only things this repo publishes besides code: .env (release metadata),
+# MODEL_CARD.md (public model documentation), and models/ (trained weights).
+# Everything else private/business-specific stays out per the rules above.
+# =============================================================================
+
 # ---- Allow the trained model weights (tracked via Git LFS, see .gitattributes) ----
 !models/
 !models/**

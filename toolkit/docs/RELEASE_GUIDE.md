@@ -9,10 +9,11 @@ stable filename the release workflow expects (kept constant across versions so d
 don't break). Weights are tracked with Git LFS (see `.gitattributes`).
 
 ## 2. Evaluate honestly
-Run the model on the held-out **test** split and record precision/recall per class.
-- If a class's test set includes lots of external data of a different nature than your own
+Run the model on the held-out **val** split (there is no separate test split — the pipeline
+uses a train/val 85/15 split only) and record precision/recall per class.
+- If a class's val set includes lots of external data of a different nature than your own
   photos (e.g. crowd faces), its recall may look low against your target. **Document that it is
-  expected and why — do not "fix" it by altering the test split.**
+  expected and why — do not "fix" it by altering the split.**
 
 ## 3. Scrub every deliverable of hidden-dataset traces
 Before committing README / MODEL_CARD / metrics:

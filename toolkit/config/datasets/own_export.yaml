@@ -32,19 +32,22 @@ include_filter: null
 
 # ---- Split (done PER DATASET, BEFORE any augmentation — leakage-free) ----
 split:
-  train: 0.70
+  train: 0.85
   val: 0.15
-  test: 0.15
   seed: 42                    # deterministic; same seed => same split forever
 
-# ---- Tiling (train split only). Three regimes, each toggleable: ----
+# ---- Tiling (train split only). Four regimes, each toggleable: ----
 tiling:
   native_tiles: true          # (a) cut the image into imgsz-sized tiles, keep positives
-  scaled_tiles: [2, 3]        # (b) cut 2x..3x windows, downscale each to imgsz (context)
+  scaled_tiles: [2, 3]        # (b) cut 2x..3x SQUARE windows, downscale each to imgsz
+  fixed_windows: [[1920, 1080], [1080, 1920]]
+                              # (c) fixed-pixel "screen shaped" crops, short side padded
+                              #     to a square, THEN downscaled to imgsz — teaches
+                              #     realistic camera/screen aspect ratios, not just squares
   whole_image: false          # ALWAYS also add the whole image->imgsz (set true for
                               #     whole-image datasets that shouldn't be tiled)
-  whole_if_span_tiles: 4      # (c) add whole-image->imgsz IF a box spans > N tiles
-  stride_frac: 0.8            # tile stride = stride_frac * imgsz
+  whole_if_span_tiles: 4      # (d) add whole-image->imgsz IF a box spans > N tiles
+  stride_frac: 0.8            # tile stride = stride_frac * window size (per regime)
   max_pos_tiles: 8            # cap positive tiles per image (disk/RAM guard)
   hardneg_frac: 0.05          # keep <=5% empty tiles as hard negatives
 
@@ -52,5 +55,7 @@ tiling:
 augment:
   photometric_variants: 1     # extra recoloured/exposed copies per train image
   geometric: true             # rotate / 180-flip / hflip variants (bbox-correct)
-  class_boost:                # oversample weak classes by duplicating+augmenting
-    license-plate: 3          # e.g. plates are rare -> 3x more plate-bearing samples
+  # class_boost is computed AUTOMATICALLY from measured label counts (see
+  # build_dataset._auto_class_boost) — the weak class gets oversampled to
+  # converge towards the strongest one, capped by global.yaml `max_versions`.
+  # Set an explicit class_boost here only to OVERRIDE the automatic value.

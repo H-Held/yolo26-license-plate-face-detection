@@ -60,6 +60,8 @@ def _diagnose(tail: str) -> str:
     t = tail.lower()
     if "out of memory" in t or "cuda oom" in t:
         return "CUDA_OOM (lower batch / imgsz)"
+    if "nvml_success == r" in t or "cudacachingallocator" in t:
+        return "CUDA_OOM masked as NVML assert (NVML blocked on this node) — lower batch/imgsz"
     if "nccl" in t:
         return "NCCL (multi-GPU comms; often a transient pod issue)"
     if "killed" in t or "signal 9" in t or "sigkill" in t:

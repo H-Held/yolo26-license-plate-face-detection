@@ -137,6 +137,22 @@ def test_tiling_regimes():
                                "whole_image": False, "whole_if_span_tiles": 0}, size, rng=rng)
     check(len(ch0) == 0, f"without whole_image, a >=imgsz whole-only image yields 0 (confirms the trap)")
 
+    # (c2) fixed_windows: rectangular 1920x1080 window, short side padded to a
+    # square (1920x1920), THEN downscaled to imgsz. Marker sits off-centre in the
+    # 1080 (padded) dimension so a padding-offset bug would visibly misplace it.
+    s, img = _rect_sample(1920, 1080, (300, 700, 500, 1000))
+    ch = tile_sample(s, img, {**base, "native_tiles": False, "scaled_tiles": [],
+                              "fixed_windows": [[1920, 1080]], "whole_image": False,
+                              "whole_if_span_tiles": 0}, size, rng=rng)
+    check(len(ch) >= 1 and _all_cover(ch, size), f"fixed_windows 1920x1080: {len(ch)} chip(s), boxes cover marker")
+
+    # portrait orientation must also work (short side is now the width)
+    s, img = _rect_sample(1080, 1920, (700, 300, 1000, 500))
+    ch = tile_sample(s, img, {**base, "native_tiles": False, "scaled_tiles": [],
+                              "fixed_windows": [[1080, 1920]], "whole_image": False,
+                              "whole_if_span_tiles": 0}, size, rng=rng)
+    check(len(ch) >= 1 and _all_cover(ch, size), f"fixed_windows 1080x1920 (portrait): {len(ch)} chip(s), boxes cover marker")
+
     # (d) conditional span trigger: huge box fires, tiny box does not
     s, img = _rect_sample(1600, 1000, (50, 50, 1550, 950))
     chb = tile_sample(s, img, {"native_tiles": False, "scaled_tiles": [],
@@ -148,6 +164,29 @@ def test_tiling_regimes():
     check(len(chs) == 0, f"span-trigger off for small box -> {len(chs)} chips")
 
 
+def test_augment_max_versions():
+    print("D. augment max_versions cap + class_boost")
+    rng = random.Random(0)
+    img = np.zeros((640, 640, 3), np.uint8)
+    face_chip = (img, [(0, 0.5, 0.5, 0.1, 0.1)])
+    plate_chip = (img, [(1, 0.5, 0.5, 0.1, 0.1)])
+
+    # class_boost factor 10 must still be CAPPED at max_versions (default 5)
+    out = A.augment_train([plate_chip], {"class_boost": {"license-plate": 10}},
+                          {"face": 0, "license-plate": 1}, rng)
+    check(len(out) == 5, f"class_boost=10 capped at default max_versions=5 (got {len(out)})")
+
+    # explicit lower cap
+    out = A.augment_train([plate_chip], {"class_boost": {"license-plate": 10}, "max_versions": 2},
+                          {"face": 0, "license-plate": 1}, rng)
+    check(len(out) == 2, f"max_versions=2 overrides a higher class_boost (got {len(out)})")
+
+    # a chip WITHOUT the boosted class is unaffected by that class's boost
+    out = A.augment_train([face_chip], {"class_boost": {"license-plate": 10}},
+                          {"face": 0, "license-plate": 1}, rng)
+    check(len(out) == 1, f"face-only chip untouched by license-plate boost (got {len(out)})")
+
+
 TEST_CFGS = {
     "public": {
         "own_test.yaml": """
@@ -156,7 +195,7 @@ format: coco
 images_dir: own_src/images
 labels: own_src/annotations.json
 class_map: {face: face, license-plate: license-plate}
-split: {train: 0.6, val: 0.2, test: 0.2, seed: 1}
+split: {train: 0.8, val: 0.2, seed: 1}
 tiling: {native_tiles: true, scaled_tiles: [2], whole_if_span_tiles: 4,
          stride_frac: 0.8, max_pos_tiles: 8, hardneg_frac: 0.05}
 augment: {photometric_variants: 1, geometric: true, class_boost: {license-plate: 3}}
@@ -170,7 +209,7 @@ labels: faces_src/faces_gt.txt
 class_map: {face: face}
 include_filter: {json: faces_src/faces_kombiniert.json, keep_value: 0, strip_prefixes: []}
 min_face_px: 8
-split: {train: 0.6, val: 0.2, test: 0.2, seed: 2}
+split: {train: 0.8, val: 0.2, seed: 2}
 tiling: {native_tiles: false, scaled_tiles: [], whole_image: true, whole_if_span_tiles: 0}
 augment: {photometric_variants: 0, geometric: false}
 """,
@@ -182,7 +221,7 @@ label_source: bbox_sidecar
 boxes_sidecar: plates_src/plates_boxes.json
 class_map: {license-plate: license-plate}
 include_filter: {json: plates_src/plates_kombiniert.json, keep_value: 0}
-split: {train: 0.6, val: 0.2, test: 0.2, seed: 3}
+split: {train: 0.8, val: 0.2, seed: 3}
 tiling: {native_tiles: false, scaled_tiles: [], whole_image: true, whole_if_span_tiles: 0}
 augment: {photometric_variants: 0, geometric: false}
 """}}
@@ -212,11 +251,11 @@ def test_build(tmp):
 
     out = res["out_dir"]
     check(res["counts"]["train"] > 0, f"train chips written: {res['counts']}")
-    check(res["counts"]["val"] > 0 and res["counts"]["test"] > 0, "val+test written")
+    check(res["counts"]["val"] > 0, "val written")
 
     # all label coords within [0,1]
     bad = 0
-    for split in ("train", "val", "test"):
+    for split in ("train", "val"):
         ld = os.path.join(out, "labels", split)
         for fn in os.listdir(ld):
             for line in open(os.path.join(ld, fn)):
@@ -237,6 +276,7 @@ def main():
     make_fixtures.build()
     test_geometry()
     test_tiling_regimes()
+    test_augment_max_versions()
     with tempfile.TemporaryDirectory() as tmp:
         test_build(tmp)
     print("\n" + ("ALL PASS" if not FAILS else f"{len(FAILS)} FAILURE(S): " + "; ".join(FAILS)))

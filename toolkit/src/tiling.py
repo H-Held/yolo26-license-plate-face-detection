@@ -1,16 +1,26 @@
 """Tiling — turns one source Sample into training chips (all imgsz x imgsz).
 
-THREE regimes (each independently toggleable per dataset in `tiling:`):
+FOUR regimes (each independently toggleable per dataset in `tiling:`):
 
   (a) native_tiles     : slide an imgsz x imgsz window over the image and keep it
                          at native resolution. Best for small objects (full detail).
-  (b) scaled_tiles [k] : slide a (k*imgsz) window and downscale it to imgsz. Gives
-                         the model lower-res context / larger objects.
-  (c) whole_if_span_tiles N : if ANY single box intersects more than N native
+  (b) scaled_tiles [k] : slide a (k*imgsz) SQUARE window and downscale it to imgsz.
+                         Gives the model lower-res context / larger objects.
+  (c) fixed_windows [[w,h],...] : slide a FIXED-PIXEL, non-square window (e.g. a
+                         1920x1080 "screen-shaped" crop) over the image; each crop is
+                         padded on its short side ("seitlich erweitert") to a square
+                         of side max(w,h), THEN downscaled to imgsz. Use this to teach
+                         the model on realistic camera/screen aspect ratios rather
+                         than only square crops.
+  (d) whole_if_span_tiles N : if ANY single box intersects more than N native
                          (imgsz-grid) tiles, the object is too big to survive native
                          tiling intact, so ALSO emit the whole image letterboxed to
-                         imgsz. Only that whole-image copy is added (per the spec:
+                         imgsz (this pads-to-square + downscales the ENTIRE image, the
+                         same "extend to square, then compress" idea applied globally).
+                         Only that whole-image copy is added (per the spec:
                          "only when a label would span more than N small tiles").
+                         `whole_image: true` forces it unconditionally (whole-image
+                         datasets, e.g. an extra face set that isn't tiled at all).
 
 Boxes are clipped to each window; a box kept only if enough of it remains
 (`min_visibility`), so the model never learns on a thin sliver of an object.
@@ -50,6 +60,19 @@ def _clip_boxes(boxes, wx1, wy1, wx2, wy2, min_vis):
             continue
         out.append(Box(b.cls, ix1 - wx1, iy1 - wy1, ix2 - wx1, iy2 - wy1))
     return out
+
+
+def _pad_to_square_and_map(crop: np.ndarray, boxes_local, pad_value: int):
+    """Pad a rectangular crop on its short side to a side x side square
+    ("seitlich erweitert"), centered. Returns (square_img, mapped_boxes) where
+    mapped_boxes are Box objects shifted into the padded square's coordinates."""
+    h, w = crop.shape[:2]
+    side = max(w, h)
+    square = np.full((side, side, 3), pad_value, dtype=np.uint8)
+    offx, offy = (side - w) // 2, (side - h) // 2
+    square[offy:offy + h, offx:offx + w] = crop
+    mapped = [Box(b.cls, b.x1 + offx, b.y1 + offy, b.x2 + offx, b.y2 + offy) for b in boxes_local]
+    return square, mapped
 
 
 def _windows(extent: int, win: int, stride: int) -> List[int]:
@@ -109,6 +132,26 @@ def tile_sample(sample: Sample, img: np.ndarray, tcfg: dict, imgsz: int,
         for wy in _windows(H, win, stride):
             for wx in _windows(W, win, stride):
                 add_window(wx, wy, win, imgsz)
+
+    # (c) fixed-pixel non-square windows (e.g. 1920x1080 / 1080x1920 "screen" crops):
+    # pad the short side to a square, THEN downscale to imgsz.
+    for fw_fh in (tcfg.get("fixed_windows") or []):
+        fw, fh = int(fw_fh[0]), int(fw_fh[1])
+        if fw > W or fh > H:
+            continue                      # window bigger than the image on some axis
+        stride_x = max(1, int(round(float(tcfg.get("stride_frac", 0.8)) * fw)))
+        stride_y = max(1, int(round(float(tcfg.get("stride_frac", 0.8)) * fh)))
+        for wy in _windows(H, fh, stride_y):
+            for wx in _windows(W, fw, stride_x):
+                wx2, wy2 = wx + fw, wy + fh
+                crop = img[wy:wy2, wx:wx2]
+                local = _clip_boxes(sample.boxes, wx, wy, wx2, wy2, min_vis)
+                square, mapped = _pad_to_square_and_map(crop, local, pad)
+                scale = imgsz / square.shape[0]
+                resized = io.resize(square, imgsz, imgsz)
+                yb = [_yolo(b.cls, b.x1 * scale, b.y1 * scale, b.x2 * scale, b.y2 * scale,
+                           imgsz, imgsz) for b in mapped]
+                (positives if yb else negatives).append((resized, yb))
 
     # cap positives (disk/RAM guard), keep the rest deterministic
     if len(positives) > max_pos:

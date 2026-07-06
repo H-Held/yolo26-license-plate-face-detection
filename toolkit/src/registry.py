@@ -30,8 +30,9 @@ def _adapters():
         from .adapters.coco import CocoAdapter
         from .adapters.facebbx import FaceBbxAdapter
         from .adapters.imagefolder import ImageFolderAdapter
+        from .adapters.yolo_txt import YoloTxtAdapter
         _ADAPTERS = {"coco": CocoAdapter, "facebbx": FaceBbxAdapter,
-                     "imagefolder": ImageFolderAdapter}
+                     "imagefolder": ImageFolderAdapter, "yolo_txt": YoloTxtAdapter}
     return _ADAPTERS
 
 

@@ -16,7 +16,7 @@ patience: 50             # early-stop patience
 #                    Relative paths are resolved under data_root.
 # NOTE: this is for a FRESH run. An interrupted run always auto-resumes from its own
 # last.pt regardless of this setting (resume beats init_weights).
-init_weights: ""
+init_weights: "runs/faces/yolo26m_face_lp_640_ft/weights/best.pt"
 
 # ---- The unified label space (index = class id in the trained model) ----
 # EVERY dataset maps its own class names onto THESE names (see class_map in each
@@ -35,10 +35,28 @@ out_dataset: dataset_build    # built YOLO dataset folder name (under data_root)
 pad_value: 114           # letterbox padding grey (matches YOLO)
 workers: 12              # CPU workers for the build
 
+# ---- Augmentation cap ----
+# Hard ceiling on how many versions of ANY single source image may end up in the
+# training set (original + photometric/geometric variants + class-boost copies).
+# Also used as the ceiling for the automatic class-balance boost (see below).
+max_versions: 5
+
 # ---- Batch finder / VRAM policy ----
 vram_target_pct: 85      # never exceed this live board usage on ANY gpu
-vram_probe_buffer: 0.83  # probe target = buffer * board  (85% minus DDP/aug margin)
-probe_iters: 40          # real-set iterations per probe (dense batches must show up)
+# probe target = buffer * board. Widened 0.83 -> 0.68 after a real crash: batch=35
+# measured "safe" at 81% on a short ~40-iter probe sample still hit a genuine CUDA
+# OOM at iteration 2391/4170 of the real epoch 1 (a later batch had a heavier box
+# load than anything the short probe sampled). More headroom absorbs that variance.
+vram_probe_buffer: 0.68
+probe_images: 2000       # fixed sample size per probe (not scaled by batch size) —
+                         # dense batches must show up regardless of candidate batch
+
+# ---- Train-time image cache ----
+#   auto -> estimate train-set RAM cache size (n_imgs * imgsz^2 * 3 bytes); use
+#           'ram' if that's <= 50% of the node's RAM limit, else 'disk' (memmap,
+#           bounded by disk not RAM — safe for a big dataset on a small node).
+#   ram | disk | false -> force that mode, skip the estimate.
+cache: auto
 
 # ---- Run naming ----
 run_name: yolo26m_build_640   # output run folder name under runs/faces/

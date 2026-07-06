@@ -1,9 +1,13 @@
 """One isolated batch-size probe (spawned by batch_finder.py).
 
 Trains ONE short pass at a given TOTAL batch on the REAL dataset while a
-background thread samples true board memory via nvidia-smi (NOT torch's
-`reserved`, which under-reads by ~1.5 GB and once put a "verified 84%" run at a
-real 97%). Prints a single result line the parent parses:
+background thread samples true board memory via `torch.cuda.mem_get_info`
+(NOT torch's `reserved`, which under-reads by ~1.5 GB and once put a "verified
+84%" run at a real 97%). `mem_get_info` calls the CUDA driver's
+`cudaMemGetInfo` directly, so — unlike nvidia-smi/pynvml — it still works on
+clusters that lock down NVML queries (e.g. "Insufficient Permissions" on a MIG
+slice) while remaining true board-level accounting, not per-process reserved.
+Prints a single result line the parent parses:
 
     PROBE_OK   {json}      # peak_mib_max, peak_mib_per_gpu, total_mib, per_gpu_batch, n_gpus
     PROBE_OOM  {json}
@@ -15,7 +19,6 @@ Usage (internal):
 from __future__ import annotations
 import json
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -28,18 +31,15 @@ if os.environ.get("YOLO_CONFIG_DIR_OVERRIDE"):
 
 
 def _sample_gpu(indices, peaks, stop):
-    q = "--query-gpu=index,memory.used,memory.total"
+    import torch
     while not stop.is_set():
-        try:
-            out = subprocess.check_output(
-                ["nvidia-smi", q, "--format=csv,noheader,nounits"],
-                text=True, timeout=5)
-            for line in out.strip().splitlines():
-                idx, used, total = [int(x) for x in line.split(",")]
-                if idx in indices:
-                    peaks[idx] = (max(peaks.get(idx, (0, total))[0], used), total)
-        except Exception:
-            pass
+        for idx in indices:
+            try:
+                free, total = torch.cuda.mem_get_info(idx)
+                used_mib, total_mib = (total - free) // (1024 ** 2), total // (1024 ** 2)
+                peaks[idx] = (max(peaks.get(idx, (0, total_mib))[0], used_mib), total_mib)
+            except Exception:
+                pass
         time.sleep(0.25)
 
 
@@ -76,8 +76,13 @@ def main():
     except Exception as e:
         stop.set()
         msg = str(e).lower()
+        # On clusters that lock down NVML (this MIG slice included), a genuine CUDA
+        # OOM doesn't surface as "out of memory" — PyTorch's caching allocator tries
+        # to query blocked NVML while building its OOM diagnostic and crashes with
+        # this internal-assert message instead. Treat it as the OOM it actually is.
         is_oom = ("out of memory" in msg or "cuda oom" in msg
-                  or e.__class__.__name__ == "OutOfMemoryError")
+                  or e.__class__.__name__ == "OutOfMemoryError"
+                  or "nvml_success == r" in msg or "cudacachingallocator" in msg)
         kind = "PROBE_OOM" if is_oom else "PROBE_FAIL"
         print(f"{kind} " + json.dumps({"error": str(e)[:400], "batch": total}))
         sys.exit(0)

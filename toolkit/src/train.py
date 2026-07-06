@@ -10,12 +10,40 @@ import json
 import os
 
 from .registry import load_global
-from .preflight import check_vram
+from .preflight import check_vram, check_ram
 from .batch_finder import find_optimal_batch, resolve_init_weights
 
 
 def _run_dir(g):
     return os.path.join(g["data_root"], "runs", "faces", g["run_name"])
+
+
+def _pick_cache(g, data_yaml):
+    """'ram' fully caches every train image as a raw array — fast, but for a big
+    dataset it can need far more than the node's RAM (a 146k-image 640x640 set
+    needs ~167 GB, seen exceeding a 48 GB cgroup limit and getting SIGKILLed
+    mid-cache). Estimate the RAM a full cache would need and fall back to
+    'disk' (memmap, bounded by disk not RAM) if it doesn't comfortably fit."""
+    mode = str(g.get("cache", "auto")).lower()
+    if mode in ("ram", "disk", "false", "none"):
+        return False if mode in ("false", "none") else mode
+    try:
+        import yaml
+        d = yaml.safe_load(open(data_yaml))
+        train_dir = os.path.join(d.get("path", ""), d.get("train", "images/train"))
+        n_train = sum(1 for f in os.listdir(train_dir)
+                      if f.lower().endswith((".jpg", ".jpeg", ".png")))
+    except Exception:
+        return "disk"   # can't verify it's safe -> don't risk RAM
+    imgsz = int(g["imgsz"])
+    need_gb = (n_train * imgsz * imgsz * 3) / (1024 ** 3)
+    ram_gb = check_ram(0) or 0
+    safe_gb = 0.5 * ram_gb   # leave headroom for the dataloader/model/OS
+    if need_gb <= safe_gb:
+        return "ram"
+    print(f"cache='auto': {n_train} train imgs @ {imgsz} need ~{need_gb:.0f} GB, "
+          f"only {safe_gb:.0f} GB of {ram_gb:.0f} GB RAM is safe to use -> 'disk'")
+    return "disk"
 
 
 def train(g=None, devices=None):
@@ -47,12 +75,16 @@ def train(g=None, devices=None):
         print(f"fresh run starting from {weights}"
               + (" (warm-start)" if g.get("init_weights") else " (COCO pretrained)"))
 
+    data_yaml = os.path.join(g["data_root"], g["out_dataset"], "dataset.yaml")
+    cache = _pick_cache(g, data_yaml)
+    print(f"cache={cache!r}")
+
     from ultralytics import YOLO
     YOLO(weights).train(
-        data=os.path.join(g["data_root"], g["out_dataset"], "dataset.yaml"),
+        data=data_yaml,
         imgsz=int(g["imgsz"]), epochs=int(g["epochs"]), batch=batch,
         device=devices, patience=int(g.get("patience", 50)),
-        cache="ram", resume=resume, project=os.path.dirname(run_dir),
+        cache=cache, resume=resume, project=os.path.dirname(run_dir),
         name=g["run_name"], exist_ok=True)
 
     json.dump({"stages": {"complete": True}}, open(state, "w"))

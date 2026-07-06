@@ -4,7 +4,7 @@ THE LEAKAGE INVARIANT (do not break):
   * The split is decided on the SOURCE image id (`Sample.sid`) only.
   * Splitting happens BEFORE any tiling/augmentation.
   * Every tile/variant later inherits its parent sample's split.
-So no derived crop of a train image can ever land in val/test.
+So no derived crop of a train image can ever land in val.
 
 Determinism: the split is a stable hash of sid (md5), NOT random shuffling, so a
 given sid always maps to the same bucket regardless of set size or ordering, and
@@ -15,7 +15,7 @@ import hashlib
 from typing import List, Dict
 from .adapters.base import Sample
 
-SPLITS = ("train", "val", "test")
+SPLITS = ("train", "val")
 
 
 def _bucket(sid: str, seed: int) -> float:
@@ -25,24 +25,21 @@ def _bucket(sid: str, seed: int) -> float:
 
 
 def split_dataset(samples: List[Sample], ratios: dict) -> Dict[str, List[Sample]]:
-    """Split one dataset's samples into train/val/test by stable hash of sid."""
-    tr = float(ratios.get("train", 0.7))
-    va = float(ratios.get("val", 0.15))
+    """Split one dataset's samples into train/val by stable hash of sid."""
+    tr = float(ratios.get("train", 0.85))
     seed = int(ratios.get("seed", 42))
     out = {s: [] for s in SPLITS}
     for smp in samples:
         b = _bucket(smp.sid, seed)
         if b < tr:
             out["train"].append(smp)
-        elif b < tr + va:
-            out["val"].append(smp)
         else:
-            out["test"].append(smp)
+            out["val"].append(smp)
     return out
 
 
 def merge_splits(per_dataset: List[Dict[str, List[Sample]]]) -> Dict[str, List[Sample]]:
-    """Merge each dataset's already-split buckets: train+train, val+val, test+test."""
+    """Merge each dataset's already-split buckets: train+train, val+val."""
     merged = {s: [] for s in SPLITS}
     for d in per_dataset:
         for s in SPLITS:

@@ -5,10 +5,16 @@ TWO independent mechanisms (the spec asks for both):
   1. GLOBAL variety   -> geometric (rotate 90/180/270, h/v flip = upside down) and
                          photometric (over/under-expose, gamma, contrast, weird
                          colour palette). Adds robustness for every image.
-  2. CLASS BOOST      -> oversample the WEAK class specifically. Train is ~44k face
-                         vs ~3k plate, so `class_boost: {license-plate: 3}` makes 3x
-                         as many plate-bearing chips (each an augmented copy). This
-                         REBALANCES; the global variety alone would not.
+  2. CLASS BOOST      -> oversample the WEAK class specifically (e.g. plates vs
+                         faces). `class_boost` can be set manually per dataset, or
+                         computed automatically from measured label counts
+                         (see build_dataset._auto_class_boost) — augment.py doesn't
+                         care which; it just receives the final per-class factor.
+
+HARD CAP: a single source chip contributes AT MOST `max_versions` copies to the
+output (default 5, incl. the original) — "maximal 5 Versionen eines Bildes". If the
+requested variety + boost would need more, the cap wins; boost is prioritised over
+extra plain variety since it's the one fixing class imbalance.
 
 All geometric transforms are square rotations/flips, so bbox math is exact and is
 verified by tests/run_smoke.py overlay checks.
@@ -87,31 +93,32 @@ def _has_class(chip: Chip, cls_id: int) -> bool:
     return any(b[0] == cls_id for b in chip[1])
 
 
+DEFAULT_MAX_VERSIONS = 5
+
+
 def augment_train(chips: List[Chip], aug_cfg: dict, name2id: dict,
                   rng: random.Random) -> List[Chip]:
-    """Return originals + variants. Logs-worthy counts are returned to the caller."""
-    out: List[Chip] = list(chips)   # always keep originals
-
+    """Return originals + variants, capped at `max_versions` copies per source chip."""
+    max_versions = max(1, int(aug_cfg.get("max_versions", DEFAULT_MAX_VERSIONS)))
     n_photo = int(aug_cfg.get("photometric_variants", 0) or 0)
     do_geom = bool(aug_cfg.get("geometric", False))
     boost = aug_cfg.get("class_boost") or {}
-
-    for chip in chips:
-        for _ in range(n_photo):
-            out.append((photometric(chip[0], rng), chip[1]))
-        if do_geom:
-            out.append(_geom_variant(chip, rng))
-
-    # weak-class oversampling: for each boosted class, add (factor-1) aug copies
-    for cls_name, factor in boost.items():
+    for cls_name in boost:
         if cls_name not in name2id:
             raise ValueError(f"class_boost names unknown class '{cls_name}'")
-        cid = name2id[cls_name]
-        factor = int(factor)
-        if factor <= 1:
-            continue
-        bearing = [c for c in chips if _has_class(c, cid)]
-        for chip in bearing:
-            for _ in range(factor - 1):
-                out.append(_combined_variant(chip, rng))
+
+    out: List[Chip] = []
+    for chip in chips:
+        chip_boost = 1
+        for cls_name, factor in boost.items():
+            if _has_class(chip, name2id[cls_name]):
+                chip_boost = max(chip_boost, int(factor))
+        plain_variety = 1 + n_photo + (1 if do_geom else 0)
+        target = min(max_versions, max(chip_boost, plain_variety))
+
+        versions = [chip]                 # the original always survives
+        while len(versions) < target:
+            versions.append(_combined_variant(chip, rng) if do_geom
+                            else (photometric(chip[0], rng), chip[1]))
+        out.extend(versions)
     return out

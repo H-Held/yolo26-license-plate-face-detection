@@ -8,7 +8,7 @@ For the next operator or AI agent. Read this before touching a live run.
 - **One CLI** does everything (`python run.py {check,build,find-batch,train,all}`).
 - The pipeline order is fixed and leakage-safe: **split each dataset → merge → tile+augment →
   batch → train**. Splitting is a stable hash of the source image id, done before augment, so
-  no crop of a train image can appear in val/test.
+  no crop of a train image can appear in val.
 
 ## What runs where
 | Task | Node | Why |

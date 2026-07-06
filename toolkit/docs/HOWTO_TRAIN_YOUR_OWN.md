@@ -7,7 +7,7 @@ The pipeline always runs in this fixed order (this order matters and is enforced
 
 ```
    split each dataset  →  merge splits  →  tile + augment  →  find batch  →  train
-   (BEFORE augment, so no image leaks between train/val/test)
+   (BEFORE augment, so no image leaks between train/val)
 ```
 
 ---
@@ -40,7 +40,7 @@ Copy `config/datasets/own_export.yaml` and edit it for your dataset:
   `imagefolder` (a folder of images; boxes come from a sidecar / pseudo-label / whole-image)
 - `images_dir`, `labels`
 - `class_map`: map each of THIS dataset's class names onto a name in `global.yaml`
-- `split`: train/val/test fractions + a fixed `seed`
+- `split`: train/val fractions + a fixed `seed`
 - `tiling` and `augment`: see the two boxes below
 
 You can add as many dataset files as you like. Each is split **separately** then merged.

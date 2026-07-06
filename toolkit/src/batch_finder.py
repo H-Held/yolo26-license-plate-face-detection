@@ -83,7 +83,12 @@ def find_optimal_batch(g=None, weights=None, data_yaml=None, devices=None, force
     n_train = _count_train_images(data_yaml)
 
     def fraction_for(total):
-        imgs = min(n_train, max(256, int(g.get("probe_iters", 40)) * total))
+        # Fixed image-count sample (not iters*batch): a real crash showed a short,
+        # batch-scaled sample can miss a dense-box outlier that a bigger fixed
+        # sample would have caught. probe_images defaults to a flat 2000 so every
+        # candidate batch size gets the same chance at hitting the worst case,
+        # instead of smaller batches getting an even thinner sample than large ones.
+        imgs = min(n_train, max(256, int(g.get("probe_images", 2000))))
         return max(min(imgs / max(n_train, 1), 1.0), 1e-3)
 
     # coarse doubling search on per-GPU batch

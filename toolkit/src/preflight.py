@@ -6,7 +6,6 @@ The point is that a non-expert gets a sentence they can act on, not a stack trac
 from __future__ import annotations
 import os
 import shutil
-import subprocess
 
 
 class PreflightError(RuntimeError):
@@ -71,14 +70,21 @@ def check_ram(need_gb: float):
 
 
 def gpu_board_mib():
-    """Per-GPU total board memory in MiB via nvidia-smi, or [] if no GPU/driver."""
+    """Per-GPU total board memory in MiB, or [] if no GPU/driver.
+
+    Uses torch's CUDA runtime query (`get_device_properties`), NOT nvidia-smi/pynvml:
+    on some shared clusters (MIG slices) both nvidia-smi --query-gpu and pynvml are
+    denied with "Insufficient Permissions" / NVMLError_NoPermission, while the CUDA
+    runtime API (which every training process needs anyway) still works fine.
+    """
     try:
-        out = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
-            text=True, timeout=15)
+        import torch
+        if not torch.cuda.is_available():
+            return []
+        return [int(torch.cuda.get_device_properties(i).total_memory / (1024 ** 2))
+                for i in range(torch.cuda.device_count())]
     except Exception:
         return []
-    return [int(x) for x in out.split() if x.strip().isdigit()]
 
 
 def check_vram(min_gib_per_gpu: float, n_gpus_expected: int = None):
