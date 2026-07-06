@@ -5,7 +5,7 @@ what kind of data** — written so a person (not a machine) can understand and r
 the setup. No images, annotations, API keys, or server credentials are part of this
 repository (privacy by design).
 
-> **Version `v2.1.0`** — YOLO26 **medium** (`yolo26m`), trained on 640×640 tiles.
+> **Version `v2.1.1`** — YOLO26 **medium** (`yolo26m`), trained on 640×640 tiles.
 > Infer at `imgsz=640`. New: `.env` ships `CHECK_FULL_IMAGE=true` — consumers can
 > run full-image inference alongside tiled inference for better large-object recall.
 
