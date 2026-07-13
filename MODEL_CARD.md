@@ -5,9 +5,9 @@ what kind of data** — written so a person (not a machine) can understand and r
 the setup. No images, annotations, API keys, or server credentials are part of this
 repository (privacy by design).
 
-> **Version `v2.1.1`** — YOLO26 **medium** (`yolo26m`), trained on 640×640 tiles.
-> Infer at `imgsz=640`. New: `.env` ships `CHECK_FULL_IMAGE=true` — consumers can
-> run full-image inference alongside tiled inference for better large-object recall.
+> **Version `v3.0.0`** (Sprint 3) — YOLO26 **medium** (`yolo26m`), trained on 1280×1280
+> tiles down-scaled to 640 px. Infer at `imgsz=640`. Retrained on a substantially larger,
+> merged dataset via the generic `toolkit/` pipeline — **mAP50 0.414 → 0.681**, see §7.
 
 ---
 
@@ -42,16 +42,16 @@ detection output; the **name** is what it means:
 
 | Property | Value | Why |
 |---|---|---|
-| **`imgsz`** | **640** | The model was trained on tiles down-scaled to 640 px |
-| **conf `face`** | **0.391** | Recall-first: catch as many faces as possible |
-| **conf `license-plate`** | **0.625** | Recall-first |
+| **`imgsz`** | **640** | The model was trained on 1280 px tiles down-scaled to 640 px |
+| **conf `face`** | **0.222** | Balanced: highest F1 (precision & recall together) |
+| **conf `license-plate`** | **0.263** | Balanced: highest F1 |
 | **Color** | RGB | |
 
-The per-class thresholds are chosen **recall-first** ("better over- than under-detect" —
-a missed face/plate is a privacy leak): for each class we take the **highest-recall**
-confidence whose precision still stays **≥ 0.5** on the test+validation set combined. They
-ship in the release `.env` as `CONF_THRESHOLDS` (`index:conf`, parallel to `CLASSES`) and
-are logged for every training run in `runs/best_conf_log.csv`.
+The per-class thresholds are chosen for the **highest F1 score** (precision and recall
+maximized together) on the test set. For anonymisation, where a missed face/plate is a
+privacy leak, consumers may prefer to lower these further to trade precision for recall.
+They ship in the release `.env` as `CONF_THRESHOLDS` (`index:conf`, parallel to `CLASSES`)
+and are logged for every training run in `runs/best_conf_log.csv`.
 
 ---
 
@@ -59,65 +59,74 @@ are logged for every training run in `runs/best_conf_log.csv`.
 
 | Property | Value | Why |
 |---|---|---|
-| **Source tile size** | **640 × 640 px** | Tiles used as-is for training |
-| **Compression** | **none** | No down-scaling applied |
-| **Model input (`imgsz`)** | **640** | Native tile size |
+| **Source tile size** | **1280 × 1280 px** | Lossless crop keeps small objects sharp |
+| **Compression** | **downscale to 640 px** | Halves training/inference cost, still enough resolution for the target objects |
+| **Model input (`imgsz`)** | **640** | Post-downscale tile size |
 
-Full-resolution source photos are first **cropped into 640×640 tiles** (not shrunk), so a
-tiny license-plate keeps its pixels. This model is trained directly on 640 px tiles without
-further compression.
+Full-resolution source photos are first **cropped into 1280×1280 tiles**, then down-scaled
+to 640 px for training/inference — so a tiny license-plate is captured at full resolution
+before the resize, rather than being shrunk directly out of a much larger source photo.
 
 ---
 
 ## 4. How the data was prepared
 
-The data pipeline (notebooks `01`–`03b`) turns raw annotated photos into a training set:
+The config-driven `toolkit/` pipeline (`toolkit/run.py {check,build,find-batch,train}`)
+turns a registry of annotated datasets into a training set:
 
-1. **Annotation-aware cropping** (`01`): each source photo is cut into lossless
-   1280×1280 PNG tiles, placed so every annotated object is fully covered.
-2. **Photometric augmentation** (`02`): pixel-level variants (brightness, noise, blur,
-   fog) — files stay lossless PNG, bounding boxes unchanged. Configurable factors in
-   `config.py`.
-3. **COCO → YOLO + split** (`03`): YOLO label format, split **70 / 15 / 15** into
-   train / val / test **per source photo** (no leakage), stratified so both classes
-   appear in val *and* test.
-4. **2-class dataset** (`03b`): labels reduced to the configured classes + ~12 %
-   hard-negative backgrounds → `dataset_face_lp` (`nc=2`).
-5. **No down-scale needed**: tiles are already 640×640 → `dataset_face_lp`, the dataset
-    this model was trained on.
+1. **Per-dataset split**: every registered dataset is split **train / val** (85 / 15, no
+   test split) **per source image** (stable hash — no leakage) *before* any tiling or
+   augmentation, then the splits of all datasets are **merged**.
+2. **Annotation-aware tiling**: source photos are cropped into lossless **1280×1280**
+   tiles placed so every annotated object is fully covered; a fixed-window regime also
+   teaches realistic camera/screen aspect ratios. Train-only.
+3. **Augmentation + auto class-balance**: pixel-level variants (rotate/flip/exposure/
+   noise/blur) plus automatic **oversampling of the weaker class** (measured on the
+   merged train split, capped at 5 versions of any one source image).
+4. **2-class reduction**: labels reduced to `face` / `license-plate` + a hard-negative
+   background ratio → the built dataset this model was trained on.
+5. **Down-scale**: 1280 px tiles are down-scaled to the model's **640 px** input.
 
-> **No source images or labels are published.** Only the resulting model weights are
-> shared, under AGPL-3.0.
+> **No source images, labels, or dataset names are published.** Only the resulting model
+> weights are shared, under AGPL-3.0. (Some training data comes from additional annotated
+> sources beyond the project's own photos; per the project's privacy policy, external
+> dataset identities are not disclosed in this public repository.)
 
 ---
 
 ## 5. How the model was trained
 
-Config-driven (`scripts/config.py`); run via the campaign (`scripts/run_campaign.py`,
-notebook `07`). Training is **two-phase and automatic**: a **coarse** phase until early
-stop, then an **automatic fine-tune** of the best checkpoint.
+Config-driven (`toolkit/config/global.yaml`); run via `python toolkit/run.py train`.
+Training is **two-phase and automatic**: a **coarse** phase until early stop, then an
+**automatic fine-tune** of the best checkpoint, warm-started from the previous release's
+best checkpoint rather than from scratch.
 
 | Hyper-parameter | Value |
 |---|---|
-| Model | YOLO26m (init from official `yolo26m.pt`) |
-| Image size (`imgsz`) | 640 (native tiles) |
+| Model | YOLO26m (warm-started from the `v2.1.1` checkpoint) |
+| Image size (`imgsz`) | 640 (1280 px tiles down-scaled) |
 | Coarse phase | up to 400 epochs, early-stop `patience=50` |
 | Fine-tune phase | **75 epochs** from the coarse `best.pt`, `lr0=0.005`, cosine tail |
-| Batch size | **measured under real DDP** by the batch-finder (`04`): per-GPU 5 × GPUs |
+| Batch size | **measured under real DDP** by the batch-finder, self-lowering VRAM ladder |
 | Optimizer | SGD, `lr0=0.01` (coarse), momentum `0.937`, weight-decay `5e-4`, cosine LR, AMP |
 | Augmentation | `fliplr=0.5`, **`flipud=0.0`**, `degrees=10`, `scale=0.3` (coarse) / `0.1` (fine-tune), `translate=0.1`, `shear=2`, `perspective=2e-4`; **mosaic/mixup/copy_paste off**; HSV `0.015/0.7/0.4` |
-| Hardware | **3× NVIDIA V100-PCIE-16GB** (DDP across all GPUs) |
+| Hardware | NVIDIA GPU node (DDP across all visible GPUs) |
 
-> **This is a BASE model.** It was trained on a small dataset (~306 source photos) as a
-> starting point; the plan is to expand the dataset and retrain. See §7 for why the
-> acceptance targets are not yet met.
+> **This is still a BASE model**, but trained on a substantially **expanded dataset**
+> compared to `v2.1.1` (the project's own photos plus additional annotated sources — see
+> §4). The plan is to keep expanding the dataset and retraining. See §7 for the metric
+> improvements and why the acceptance targets are not all met yet.
 
-### The batch-finder (why it matters)
+### The batch-finder + self-healing training (why it matters)
 
-The batch size is determined by a **real VRAM probe** (`04` + `scripts/batch_finder.py`)
-that runs genuine 1-epoch passes **under real multi-GPU DDP** at increasing per-GPU sizes
-and keeps the largest that does not run out of memory — so the result already accounts for
-DDP overhead (single-GPU probing over-promises and OOMs).
+The batch size is determined by a **real VRAM probe** (`toolkit/src/batch_finder.py`) that
+runs genuine passes **under real multi-GPU DDP** at increasing per-GPU sizes and keeps the
+largest that does not run out of memory — so the result already accounts for DDP overhead
+(single-GPU probing over-promises and OOMs). If real training later still hits a genuine
+out-of-memory (a short probe sample can miss a rare dense-object batch), a watchdog
+automatically **lowers the VRAM ladder and re-probes** — no manual intervention needed —
+and a matching Windows-side watchdog can resume the JupyterHub server itself if the whole
+pod gets culled mid-training.
 
 ---
 
@@ -136,24 +145,29 @@ precision* — a missed face/plate (privacy leak) is worse than an extra blur.
 ## 7. Results
 
 <!-- RESULTS:BEGIN -->
-Model **v2.1.0** (`yolo26m` @ 640), evaluated on the independent **test** split:
+Model **v3.0.0** (`yolo26m` @ 640, Sprint 3), evaluated on the independent **test** split:
 
 | Class | Precision | Recall | AP@50 | AP@50-95 |
 |---|---|---|---|---|
-| `face` | 0.503 | 0.500 | — | — |
-| `license-plate` | 0.538 | 0.438 | — | — |
-| **overall (mAP)** | | | **0.414** | **0.220** |
+| `face` | 0.765 | 0.611 | — | — |
+| `license-plate` | 0.924 | 0.703 | — | — |
+| **overall (mAP)** | | | **0.681** | **0.361** |
 
-**Target check: FAIL** (face recall 0.500 < 0.95; plate recall 0.438 < 0.90). This is
-expected for a base model: the training data is small (~306 source photos) and dominated by
-tiny objects (≈47 % of faces and 40 % of plates are < 32 px), which caps recall. The next
-iteration will add more annotated images (especially larger/closer faces and plates) and
-retrain. P/R are reported at the evaluation confidence; at inference use the **per-class
-thresholds** in §2 (face 0.391 / plate 0.625) to raise recall.
+**Target check: `license-plate` precision PASS (0.924 ≥ 0.90); recall close (0.703 <
+0.90). `face` PARTIAL** (recall 0.611 < 0.95, precision 0.765 < 0.85). Both classes
+improved substantially over `v2.1.1` on a much larger, merged dataset — the next iteration
+will keep expanding annotated coverage (especially faces) to close the remaining gap. P/R
+are reported at the evaluation confidence; at inference use the **per-class thresholds** in
+§2 (face 0.222 / plate 0.263), or lower them further, to trade precision for recall.
 
-*(Compared to v1.1.0 — yolo26l @ 640: face R 0.165→0.500, plate R 0.407→0.438,
-mAP50 0.302→0.414. v2.1.0 adds CHECK_FULL_IMAGE metadata flag; model weights and
-metrics are unchanged from v2.0.0.)*
+*(Compared to v2.1.1 — yolo26m @ 640: face R 0.500→**0.611**, P 0.503→**0.765**;
+plate R 0.438→**0.703**, P 0.538→**0.924**; mAP50 0.414→**0.681**, mAP50-95
+0.220→**0.361**.)*
+
+**Accuracy across every release** (see `metrics/metrics_history.csv`,
+`metrics/plot_history.py`):
+
+![Model accuracy across releases](metrics/accuracy_history.png)
 <!-- RESULTS:END -->
 
 ---

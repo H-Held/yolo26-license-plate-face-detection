@@ -42,14 +42,23 @@ workers: 12              # CPU workers for the build
 max_versions: 5
 
 # ---- Batch finder / VRAM policy ----
-vram_target_pct: 85      # never exceed this live board usage on ANY gpu
-# probe target = buffer * board. Widened 0.83 -> 0.68 after a real crash: batch=35
-# measured "safe" at 81% on a short ~40-iter probe sample still hit a genuine CUDA
-# OOM at iteration 2391/4170 of the real epoch 1 (a later batch had a heavier box
-# load than anything the short probe sampled). More headroom absorbs that variance.
-vram_probe_buffer: 0.68
-probe_images: 2000       # fixed sample size per probe (not scaled by batch size) —
+vram_target_pct: 90      # informational ceiling, shown in messages
+# Auto-lowering ladder: find-batch starts GREEDY at the first rung (90%). If a
+# probe fails outright it's a hard error, but if REAL training later hits a
+# genuine OOM (even one probing said was "safe" — a short sample can still miss
+# a rare dense-box batch, seen in practice with batch=35 @ 81% crashing mid-epoch
+# at iteration 2391/4170), the watchdog automatically advances to the next, lower
+# rung and re-probes — no human/agent needs to intervene or edit this by hand.
+# NOTE: 0.90 is intentionally aggressive (raised from the previously safe 0.80
+# default) — watch the first few epochs closely after any run using this rung.
+# State persists per-run in runs/faces/<run_name>/vram_ladder.json.
+vram_ladder: [0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60, 0.55, 0.50, 0.45, 0.40]
+probe_images: 8000       # fixed sample size per probe (not scaled by batch size) —
                          # dense batches must show up regardless of candidate batch
+probe_dense_images: 300  # of probe_images, this many are NOT random -- always the
+                         # top-N highest box-count train images, force-included on
+                         # every probe so a rare dense-box outlier can't slip past
+                         # a random sample the way it did for the batch=35 crash
 
 # ---- Train-time image cache ----
 #   auto -> estimate train-set RAM cache size (n_imgs * imgsz^2 * 3 bytes); use

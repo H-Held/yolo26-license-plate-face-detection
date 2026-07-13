@@ -8,8 +8,13 @@ says stages.complete. Also makes sure the keep-alive is running.
 Nothing here is hard-coded to a particular run name — it reads config/global.yaml.
 
     nohup python recovery/server/watchdog.py >> runs/watchdog.log 2>&1 &
+
+Training's own stdout/stderr (incl. the ultralytics progress bar) is streamed
+line-by-line into runs/train_live.log as it happens — not just captured at the
+end — so a local tailer always sees the current line, even mid-epoch.
 """
 from __future__ import annotations
+import collections
 import os
 import subprocess
 import sys
@@ -18,10 +23,13 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLKIT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, TOOLKIT)
-from src.registry import load_global   # noqa: E402
+from src.registry import load_global           # noqa: E402
+from src.batch_finder import lower_buffer_rung  # noqa: E402
 
 MAX_RETRIES = int(os.environ.get("WATCHDOG_MAX_RETRIES", "50"))
 BACKOFF = [10, 30, 60, 120, 300]
+TRAIN_LIVE_LOG = os.path.join(TOOLKIT, "runs", "train_live.log")
+TAIL_LINES = 400
 
 
 def _state_path(g):
@@ -56,19 +64,48 @@ def _ensure_keepalive():
     print("watchdog: started keepalive", flush=True)
 
 
-def _diagnose(tail: str) -> str:
+def _diagnose(tail: str) -> tuple[str, bool]:
+    """Returns (message, is_vram_oom). is_vram_oom is True only for causes that
+    the auto-lowering VRAM ladder can actually fix (a real batch-size-driven OOM,
+    including the masked-NVML-assert variant seen on permission-locked MIG
+    slices) — NOT for RAM-cgroup kills, NCCL, or other unrelated crashes, where
+    lowering VRAM further wouldn't help and would just burn ladder rungs."""
     t = tail.lower()
     if "out of memory" in t or "cuda oom" in t:
-        return "CUDA_OOM (lower batch / imgsz)"
+        return "CUDA_OOM", True
     if "nvml_success == r" in t or "cudacachingallocator" in t:
-        return "CUDA_OOM masked as NVML assert (NVML blocked on this node) — lower batch/imgsz"
+        return "CUDA_OOM masked as NVML assert (NVML blocked on this node)", True
     if "nccl" in t:
-        return "NCCL (multi-GPU comms; often a transient pod issue)"
+        return "NCCL (multi-GPU comms; often a transient pod issue)", False
     if "killed" in t or "signal 9" in t or "sigkill" in t:
-        return "OOM-KILLED by the pod (RAM cgroup) — lower cache/batch"
+        return "OOM-KILLED by the pod (RAM cgroup) — check cache mode, not VRAM", False
     if "cuda error" in t or "device-side assert" in t:
-        return "CUDA_ERROR"
-    return "UNKNOWN (see crashreport)"
+        return "CUDA_ERROR", False
+    return "UNKNOWN (see crashreport)", False
+
+
+def _run_train_streaming(attempt: int) -> tuple[int, str]:
+    """Runs `python run.py train`, streaming every line it prints (progress bar
+    included — ultralytics/tqdm falls back to one line per update, not \\r
+    overwrite, once stdout isn't a tty) into TRAIN_LIVE_LOG in real time, so a
+    local tailer sees the current line instead of only the final buffered dump
+    subprocess.run(capture_output=True) would have given at process exit.
+    Returns (returncode, tail_text) for crash diagnosis."""
+    os.makedirs(os.path.dirname(TRAIN_LIVE_LOG), exist_ok=True)
+    tail = collections.deque(maxlen=TAIL_LINES)
+    with open(TRAIN_LIVE_LOG, "a", encoding="utf-8", errors="replace") as logf:
+        logf.write(f"\n===== watchdog: launch train (attempt {attempt}) "
+                    f"{time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+        logf.flush()
+        proc = subprocess.Popen([sys.executable, "run.py", "train"], cwd=TOOLKIT,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, bufsize=1)
+        for line in proc.stdout:
+            logf.write(line)
+            logf.flush()
+            tail.append(line)
+        proc.wait()
+    return proc.returncode, "".join(tail)[-4000:]
 
 
 def _write_crashreport(g, attempt, tail, cause):
@@ -89,17 +126,26 @@ def main():
             return
         _ensure_keepalive()
         print(f"watchdog: launch train (attempt {attempt}/{MAX_RETRIES})", flush=True)
-        proc = subprocess.run([sys.executable, "run.py", "train"], cwd=TOOLKIT,
-                              capture_output=True, text=True)
-        sys.stdout.write(proc.stdout[-4000:] or "")
-        if _is_complete(g) or proc.returncode == 0:
+        returncode, tail = _run_train_streaming(attempt)
+        if _is_complete(g) or returncode == 0:
             print("watchdog: training finished cleanly.", flush=True)
             return
-        tail = (proc.stderr or proc.stdout)[-4000:]
-        cause = _diagnose(tail)
+        cause, is_vram_oom = _diagnose(tail)
         _write_crashreport(g, attempt, tail, cause)
+        if is_vram_oom:
+            new_buf = lower_buffer_rung(g)
+            if new_buf is None:
+                print(f"watchdog: crash ({cause}); VRAM ladder EXHAUSTED (already at "
+                      f"its lowest rung) — giving up, a smaller imgsz/model_size is "
+                      f"needed now, not just a smaller batch.", flush=True)
+                return
+            print(f"watchdog: crash ({cause}); lowering VRAM ladder -> buffer={new_buf} "
+                  f"and re-probing batch on next attempt", flush=True)
+        else:
+            print(f"watchdog: crash ({cause}); retrying without changing VRAM ladder "
+                  f"(not a VRAM-fixable cause)", flush=True)
         wait = BACKOFF[min(attempt - 1, len(BACKOFF) - 1)]
-        print(f"watchdog: crash ({cause}); retrying in {wait}s", flush=True)
+        print(f"watchdog: retrying in {wait}s", flush=True)
         time.sleep(wait)
     print("watchdog: gave up after max retries.", flush=True)
 

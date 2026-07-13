@@ -1,0 +1,3 @@
+# For program2_resume_watchdog.py, tail_log.py, fetch_log.py (run on your PC, not the pod).
+httpx>=0.27
+websockets>=12

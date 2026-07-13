@@ -3,6 +3,7 @@
 [![License](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Model](https://img.shields.io/badge/Model-YOLO26m-success)](MODEL_CARD.md)
 [![Input](https://img.shields.io/badge/Input-640×640-orange)]()
+[![mAP50](https://img.shields.io/badge/mAP50-0.681-brightgreen)](MODEL_CARD.md)
 
 A **YOLO26** detector that finds **faces** and **vehicle license-plates**, trained by
 HTW Berlin students for the **"Privacy by Upload — Automated Image Anonymization"**
@@ -14,11 +15,12 @@ YOLO26/Ultralytics: it publishes the **training code** and the **resulting model
 weights**. It deliberately contains **no training images, no annotations, no API keys,
 and no server credentials** — only code and the model.
 
-> **Current release: `v2.1.0`** — YOLO26 **medium** (`yolo26m`), trained on 640×640 tiles
-> (infer at `imgsz=640`). New: `CHECK_FULL_IMAGE` flag in `.env` — consumers can now run
-> inference on the **complete image** (letterboxed) in addition to tiles, catching
-> large objects that span multiple tiles. Still a **base model** (data-limited,
-> targets not yet met — see Results).
+> **Current release: `v3.0.0`** (Sprint 3) — YOLO26 **medium** (`yolo26m`), trained on
+> 1280 px tiles down-scaled to `imgsz=640`. Retrained on a much larger, merged dataset
+> and a self-healing training pipeline (auto VRAM-ladder, crash-safe resume — see
+> [MODEL_CARD.md](MODEL_CARD.md)). **mAP50 jumped 0.414 → 0.681** and every per-class
+> recall/precision improved substantially over `v2.1.1` — see Results below. Still a
+> **base model**: face recall is on track but not yet at the acceptance target.
 
 ---
 
@@ -57,8 +59,8 @@ curl -L -o yolo26m_face_lp.pt \
 `v1.1.0`):
 
 ```
-https://github.com/H-Held/yolo26-license-plate-face-detection/releases/download/v2.1.0/yolo26m_face_lp.pt
-https://github.com/H-Held/yolo26-license-plate-face-detection/raw/v2.1.0/models/yolo26m_face_lp.pt
+https://github.com/H-Held/yolo26-license-plate-face-detection/releases/download/v3.0.0/yolo26m_face_lp.pt
+https://github.com/H-Held/yolo26-license-plate-face-detection/raw/v3.0.0/models/yolo26m_face_lp.pt
 ```
 
 If you cloned the repo, make sure LFS content is pulled:
@@ -77,12 +79,12 @@ from ultralytics import YOLO
 
 model = YOLO("yolo26m_face_lp.pt")
 
-# This model was trained on 640 px tiles -> infer at imgsz=640.
-# Recommended per-class confidence (recall-first: better over- than under-detect):
-#   face = 0.391   license-plate = 0.625
-results = model.predict("your_image.jpg", imgsz=640, conf=0.391)
+# This model was trained on 1280 px tiles downscaled to 640 -> infer at imgsz=640.
+# Recommended per-class confidence (balanced: highest F1, precision & recall together):
+#   face = 0.222   license-plate = 0.263
+results = model.predict("your_image.jpg", imgsz=640, conf=0.222)
 
-CONF = {"face": 0.391, "license-plate": 0.625}
+CONF = {"face": 0.222, "license-plate": 0.263}
 for r in results:
     for box in r.boxes:
         cls = model.names[int(box.cls)]      # "face" or "license-plate"
@@ -110,23 +112,27 @@ with the tile detections and apply NMS/deduplication as needed.
 ## Results (test split)
 
 <!-- RESULTS:BEGIN -->
-**This is a BASE model (`v2.1.0`, yolo26m @ 640)** trained on a small dataset
-(~306 source photos) as a starting point — it will be retrained as more images are
-collected. Evaluated on the independent test split (`notebooks/06_evaluate.ipynb`):
+**This is a BASE model (`v3.0.0`, yolo26m @ 640, Sprint 3)**, retrained on a much larger,
+merged dataset than `v2.1.1`. Evaluated on the independent test split
+(`toolkit/run.py train`'s evaluation stage):
 
 | Class | Precision | Recall | AP@50 | AP@50-95 |
 |---|---|---|---|---|
-| `face` | 0.503 | 0.500 | — | — |
-| `license-plate` | 0.538 | 0.438 | — | — |
-| **overall (mAP)** | | | **0.414** | **0.220** |
+| `face` | 0.765 | 0.611 | — | — |
+| `license-plate` | 0.924 | 0.703 | — | — |
+| **overall (mAP)** | | | **0.681** | **0.361** |
 
 > P/R are reported at Ultralytics' evaluation confidence. For anonymisation use the
-> **per-class thresholds** above (face 0.391 / plate 0.625), which trade precision for recall.
+> **per-class thresholds** above (face 0.222 / plate 0.263), which trade precision for recall.
 
-**The acceptance targets below are NOT yet met** — expected at this stage. The dataset is
-small and dominated by tiny objects (≈47 % of faces and 40 % of plates are < 32 px), which
-caps recall. More (and larger) annotated faces/plates are the main lever; that is the
-purpose of the next data-collection + retraining round.
+**Accuracy across every release:**
+
+![Model accuracy across releases](metrics/accuracy_history.png)
+
+`license-plate` precision now clears the acceptance target and recall is close; `face`
+recall is still below target. More annotated faces (especially close/large ones) remain
+the main lever for the next round — see [MODEL_CARD.md §7](MODEL_CARD.md#7-results) for
+the full history.
 <!-- RESULTS:END -->
 
 Targets (future goal): `face` recall ≥ 0.95 & precision ≥ 0.85; `license-plate` recall ≥
@@ -136,18 +142,21 @@ Targets (future goal): `face` recall ≥ 0.95 & precision ≥ 0.85; `license-pla
 
 ## Configuring & retraining (one file)
 
-The whole pipeline is driven by **[`scripts/config.py`](scripts/config.py)** — edit that
-one file, no internals needed:
+The whole pipeline is driven by **[`toolkit/config/global.yaml`](toolkit/config/global.yaml)**
+— edit that one file, no internals needed:
 
-- **model size** `MODEL_SIZE = n | s | m | l | x`, or build on an existing checkpoint via `INIT_FROM`;
-- **classes** as a dict (`nc` is counted automatically);
-- **image size**, **augmentation**, schedule, and `GPUS = "all"` (use every GPU of the host).
+- **model size** `model_size: n | s | m | l | x`, or warm-start from an existing checkpoint via `init_weights`;
+- **classes** as a list (`nc` is counted automatically);
+- **image size**, augmentation cap, VRAM ladder, and dataset registry (`toolkit/config/datasets/*.yaml`,
+  add a dataset = drop a YAML file, no code change).
 
-Training (notebook `05`) runs in two phases automatically: **coarse** training until early
-stop, then an **automatic fine-tune** of the best checkpoint. Evaluation (notebook `06`)
-reports test metrics **and** the best confidence threshold **per class** (from test+val
-combined). For an unattended, disconnect-proof run of multiple models on all GPUs, use
-`scripts/run_campaign.py` (notebook `07`).
+A single CLI drives everything: `python toolkit/run.py {check,build,find-batch,train,status,all}`.
+Training runs in two phases automatically: **coarse** until early-stop, then an
+**automatic fine-tune** of the best checkpoint. The batch size is chosen by a **real VRAM
+probe** under actual multi-GPU DDP, with a self-lowering ladder if training later hits a
+genuine out-of-memory. See **[toolkit/README.md](toolkit/README.md)** and
+**[toolkit/docs/HOWTO_TRAIN_YOUR_OWN.md](toolkit/docs/HOWTO_TRAIN_YOUR_OWN.md)** for the
+full walkthrough.
 
 ---
 
@@ -158,28 +167,26 @@ combined). For an unattended, disconnect-proof run of multiple models on all GPU
 ├── LICENSE                 # AGPL-3.0
 ├── README.md               # this file
 ├── MODEL_CARD.md           # human-readable model + training description
+├── CHANGELOG.md            # per-release change log
 ├── .env                    # release metadata (classes, tiling, conf thresholds, CHECK_FULL_IMAGE, metrics)
 ├── .gitattributes          # Git LFS rules (*.pt, *.onnx, …)
 ├── models/
 │   └── yolo26m_face_lp.pt    # newest model (this path is the stable download link)
-├── metrics/metrics_history.csv  # one row per release (accuracy over versions)
-├── notebooks/              # the full, reproducible pipeline (00–07)
-│   ├── 00_setup … 03b      # data prep (crop, augment, split, 2-class dataset)
-│   ├── 04_batch_finder     # REAL VRAM batch-size probe (DDP-aware)
-│   ├── 05_train            # config-driven training + auto fine-tune
-│   ├── 06_evaluate         # test metrics + per-class best confidence
-│   └── 07_campaign         # unattended multi-model campaign (all GPUs)
-└── scripts/                # config + engine used by the notebooks
-    ├── config.py           # <- the one file you edit
-    ├── train_pipeline.py   # multi-GPU train/finetune/eval/per-class-conf engine
-    ├── batch_finder.py     # real DDP VRAM probe
-    ├── build_resized_dataset.py
-    ├── run_campaign.py · supervise_campaign.sh
-    ├── image_crop_augment.py · photometric_worker.py · piheif_fix.py
+├── metrics/
+│   ├── metrics_history.csv     # one row per release (accuracy over versions)
+│   ├── accuracy_history.png    # chart of the above, regenerated by plot_history.py
+│   └── plot_history.py         # local, offline chart generator (no external services)
+└── toolkit/                 # the full, reproducible, config-driven training pipeline
+    ├── run.py                  # <- the CLI: check / build / find-batch / train / status / all
+    ├── config/global.yaml      # <- the one file you edit for the model itself
+    ├── config/datasets/        # one YAML per dataset (registry, format-agnostic)
+    ├── src/                    # adapters, tiling, augmentation, batch-finder, train engine
+    ├── recovery/                # self-healing: server watchdog + Windows resume watchdog
+    └── docs/                   # setup, training and release guides
 ```
 
-> The notebooks reference a `ROOT` working directory. Edit `scripts/config.py` to point at
-> your own data directory. No dataset is shipped — bring your own annotated images in COCO format.
+> Edit `toolkit/config/global.yaml` (`data_root`) to point at your own data directory. No
+> dataset is shipped — bring your own annotated images (COCO, YOLO-txt, or face-bbox format).
 
 ---
 

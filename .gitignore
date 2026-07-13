@@ -27,6 +27,7 @@ aug/
 runs/
 _old*/
 *.zip
+docs/
 
 # ---- Toolkit generated fixtures + local presence/GT files (never commit data) ----
 toolkit/tests/_fixtures/
@@ -50,6 +51,8 @@ annotations*.json
 source/FireBase/serviceAccountKey.json
 *export*link*.txt
 *tunnel*
+toolkit/recovery/windows/recovery.json
+toolkit/recovery/windows/*.log
 
 # ---- Editor / IDE ----
 .vs/
@@ -85,3 +88,6 @@ task_progress.md
 # ---- Allow the trained model weights (tracked via Git LFS, see .gitattributes) ----
 !models/
 !models/**
+
+# ---- Allow the one generated chart (accuracy across releases, no source photos) ----
+!metrics/accuracy_history.png

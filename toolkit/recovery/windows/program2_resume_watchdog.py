@@ -62,10 +62,16 @@ KERNEL_NAME_FALLBACK = "python3"
 
 
 def load_cfg() -> dict:
+    # token precedence (lowest to highest): mcp_config file < recovery.json "token"
+    # < JUPYTERHUB_TOKEN env var. A plain "token" key in recovery.json is the
+    # simplest path for most setups (no separate mcp_config file needed) — get
+    # yours from the JupyterHub web UI: Control Panel -> Token -> New API Token.
     cfg = {"hub_url": RC.get("hub_url", ""), "token": "", "verify_tls": True,
            "http_timeout": 30, "server_start_timeout": 300, "vpn_connect_timeout": 90}
     if MCP_CONFIG and MCP_CONFIG.exists():
         cfg.update(json.loads(MCP_CONFIG.read_text(encoding="utf-8")))
+    if RC.get("token"):
+        cfg["token"] = RC["token"]
     if os.environ.get("JUPYTERHUB_TOKEN"):
         cfg["token"] = os.environ["JUPYTERHUB_TOKEN"]
     if RC.get("hub_url"):
